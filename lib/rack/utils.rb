@@ -168,6 +168,54 @@ module Rack
     end
     module_function :select_best_encoding
 
+    def set_cookie_header!(header, key, value)
+      case value
+      when Hash
+        domain  = "; domain="  + value[:domain] if value[:domain]
+        path    = "; path="    + value[:path]   if value[:path]
+        # According to RFC 2109, we need dashes here.
+        # N.B.: cgi.rb uses spaces...
+        expires = "; expires=" + value[:expires].clone.gmtime.
+          strftime("%a, %d-%b-%Y %H:%M:%S GMT") if value[:expires]
+        secure = "; secure"  if value[:secure]
+        httponly = "; HttpOnly" if value[:httponly]
+        value = value[:value]
+      end
+      value = [value] unless Array === value
+      cookie = escape(key) + "=" +
+        value.map { |v| escape v }.join("&") +
+        "#{domain}#{path}#{expires}#{secure}#{httponly}"
+
+      case header["Set-Cookie"]
+      when Array
+        header["Set-Cookie"] << cookie
+      when String
+        header["Set-Cookie"] = [header["Set-Cookie"], cookie]
+      when nil
+        header["Set-Cookie"] = cookie
+      end
+
+      nil
+    end
+    module_function :set_cookie_header!
+
+    def delete_cookie_header!(header, key, value = {})
+      unless Array === header["Set-Cookie"]
+        header["Set-Cookie"] = [header["Set-Cookie"]].compact
+      end
+
+      header["Set-Cookie"].reject! { |cookie|
+        cookie =~ /\A#{escape(key)}=/
+      }
+
+      set_cookie_header!(header, key,
+                 {:value => '', :path => nil, :domain => nil,
+                   :expires => Time.at(0) }.merge(value))
+
+      nil
+    end
+    module_function :delete_cookie_header!
+
     # Return the bytesize of String; uses String#length under Ruby 1.8 and
     # String#bytesize under 1.9.
     if ''.respond_to?(:bytesize)
@@ -270,10 +318,14 @@ module Rack
     end
 
     # Every standard HTTP code mapped to the appropriate message.
-    # Stolen from Mongrel.
+    # Generated with:
+    #   curl -s http://www.iana.org/assignments/http-status-codes | \
+    #     ruby -ane 'm = /^(\d{3}) +(\S[^\[(]+)/.match($_) and
+    #                puts "      #{m[1]}  => \x27#{m[2].strip}x27,"'
     HTTP_STATUS_CODES = {
       100  => 'Continue',
       101  => 'Switching Protocols',
+      102  => 'Processing',
       200  => 'OK',
       201  => 'Created',
       202  => 'Accepted',
@@ -281,12 +333,15 @@ module Rack
       204  => 'No Content',
       205  => 'Reset Content',
       206  => 'Partial Content',
+      207  => 'Multi-Status',
+      226  => 'IM Used',
       300  => 'Multiple Choices',
       301  => 'Moved Permanently',
       302  => 'Found',
       303  => 'See Other',
       304  => 'Not Modified',
       305  => 'Use Proxy',
+      306  => 'Reserved',
       307  => 'Temporary Redirect',
       400  => 'Bad Request',
       401  => 'Unauthorized',
@@ -302,16 +357,23 @@ module Rack
       411  => 'Length Required',
       412  => 'Precondition Failed',
       413  => 'Request Entity Too Large',
-      414  => 'Request-URI Too Large',
+      414  => 'Request-URI Too Long',
       415  => 'Unsupported Media Type',
       416  => 'Requested Range Not Satisfiable',
       417  => 'Expectation Failed',
+      422  => 'Unprocessable Entity',
+      423  => 'Locked',
+      424  => 'Failed Dependency',
+      426  => 'Upgrade Required',
       500  => 'Internal Server Error',
       501  => 'Not Implemented',
       502  => 'Bad Gateway',
       503  => 'Service Unavailable',
       504  => 'Gateway Timeout',
-      505  => 'HTTP Version Not Supported'
+      505  => 'HTTP Version Not Supported',
+      506  => 'Variant Also Negotiates',
+      507  => 'Insufficient Storage',
+      510  => 'Not Extended',
     }
 
     # Responses with HTTP status codes that should not have an entity body

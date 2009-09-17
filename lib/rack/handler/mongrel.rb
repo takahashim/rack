@@ -7,8 +7,12 @@ module Rack
   module Handler
     class Mongrel < ::Mongrel::HttpHandler
       def self.run(app, options={})
-        server = ::Mongrel::HttpServer.new(options[:Host] || '0.0.0.0',
-                                           options[:Port] || 8080)
+        server = ::Mongrel::HttpServer.new(
+          options[:Host]           || '0.0.0.0',
+          options[:Port]           || 8080,
+          options[:num_processors] || 950,
+          options[:throttle]       || 0,
+          options[:timeout]        || 60)
         # Acts like Rack::URLMap, utilizing Mongrel's own path finding methods.
         # Use is similar to #run, replacing the app argument with a hash of 
         # { path=>app, ... } or an instance of Rack::URLMap.
@@ -45,8 +49,11 @@ module Rack
 
         env["SCRIPT_NAME"] = ""  if env["SCRIPT_NAME"] == "/"
 
+        rack_input = request.body || StringIO.new('')
+        rack_input.set_encoding(Encoding::BINARY) if rack_input.respond_to?(:set_encoding)
+
         env.update({"rack.version" => [1,0],
-                     "rack.input" => request.body || StringIO.new(""),
+                     "rack.input" => rack_input,
                      "rack.errors" => $stderr,
 
                      "rack.multithread" => true,
